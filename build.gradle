@@ -1,0 +1,70 @@
+buildscript {
+    ext {
+        springBootVersion = '1.4.1.RELEASE'
+    }
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+        classpath("io.spring.gradle:dependency-management-plugin:0.6.0.RELEASE")
+    }
+}
+
+configure(allprojects) {
+    apply plugin: 'java'
+    apply plugin: 'spring-boot'
+    apply plugin: 'io.spring.dependency-management'
+
+    ext {
+        versions = [
+            jdk                : '1.8'
+        ]
+    }
+
+    configurations {
+        all*.exclude module: "tomcat-jdbc"
+
+        // replaced with jcl-over-slf4j
+        all*.exclude group: 'commons-logging', module: 'commons-logging'
+        // replaced with log4j-over-slf4j
+        all*.exclude group: 'log4j', module: 'log4j'
+    }
+
+    repositories {
+        maven { url "https://repo.spring.io/libs-release" }
+        mavenCentral()
+    }
+
+    dependencies {
+        compile 'org.springframework.boot:spring-boot-starter-web'
+        compile 'org.springframework.boot:spring-boot-starter-undertow'
+        compile 'io.projectreactor:reactor-core:3.0.3.RELEASE'
+
+        testCompile 'org.springframework.boot:spring-boot-starter-test'
+    }
+
+    sourceCompatibility = versions.jdk
+    targetCompatibility = versions.jdk
+    compileJava.options.encoding = 'UTF-8'
+}
+
+project('api-service') {
+
+    bootRepackage {
+        executable = true
+        excludeDevtools = true
+    }
+
+    task distZip(type: Zip) {
+        entryCompression = ZipEntryCompression.STORED
+
+        from fileTree('build/libs')
+        from fileTree('src/awseb-scripts')
+    }
+
+}
+
+wrapper {
+    gradleVersion = '3.1'
+}

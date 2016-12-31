@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang=en'>
+<head>
+    <meta charset='UTF-8'>
+    <script style='text/javascript'>
+        var eventSource = new EventSource('/notification/poll');
+        eventSource.onmessage = function (event) {
+            document.body.innerHTML += event + '<br/>';
+        };
+    </script>
+</head>
+<body/>
+</html>
