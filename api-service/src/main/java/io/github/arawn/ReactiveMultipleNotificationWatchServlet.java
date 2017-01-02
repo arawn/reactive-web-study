@@ -4,7 +4,8 @@ import io.github.arawn.notification.ReactiveMultipleNotificationStream;
 import io.github.arawn.service.AwkwardChaosMonkey;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import reactor.core.Cancellation;
+import reactor.core.Disposable;
+import reactor.core.Exceptions;
 
 import javax.servlet.*;
 import javax.servlet.annotation.WebServlet;
@@ -12,7 +13,6 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.io.PrintWriter;
 
 @WebServlet(urlPatterns = "/notification/watch/reactive-multiple", asyncSupported = true)
 public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
@@ -28,23 +28,29 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
         response.setCharacterEncoding("utf-8");
         response.setContentType("text/event-stream");
 
-        PrintWriter writer = response.getWriter();
+        ServletOutputStream outputStream = response.getOutputStream();
 
         AsyncContext asyncContext = request.startAsync();
-        asyncContext.setTimeout(Integer.MAX_VALUE);
 
         ReactiveMultipleNotificationStream notificationStream = new ReactiveMultipleNotificationStream();
-        Cancellation cancellation = notificationStream.watch()
-                                                      .doOnError(throwable -> {
-                                                          log.error("notification stream error!", throwable);
-                                                          asyncContext.complete();
-                                                      })
-                                                      .doOnComplete(asyncContext::complete)
-                                                      .subscribe(notification -> {
-                                                          writer.write("event: " + notification.getEvent() + "\n");
-                                                          writer.write("data: " + notification.getData() + "\n\n");
-                                                          writer.flush();
-                                                      }, 256);
+        Disposable disposable = notificationStream.watch()
+                                                  .map(notification -> {
+                                                      String content = "event: " + notification.getEvent() + "\n" +
+                                                                       "data: " + notification.getData() + "\n\n";
+
+                                                      return content.getBytes();
+                                                  })
+                                                  .doOnNext(content -> {
+                                                      try {
+                                                          outputStream.write(content);
+                                                          outputStream.flush();
+                                                      } catch (IOException error) {
+                                                          throw new DataWriteException(error);
+                                                      }
+                                                  })
+                                                  .doOnError(throwable -> asyncContext.complete())
+                                                  .doOnComplete(asyncContext::complete)
+                                                  .subscribe(1);
 
         asyncContext.addListener(new AsyncListener() {
 
@@ -52,7 +58,9 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
             public void onComplete(AsyncEvent event) throws IOException {
                 log.info("complete reactive-multiple");
 
-                cancellation.dispose();
+                if (!disposable.isDisposed()) {
+                    disposable.dispose();
+                }
             }
 
             @Override
@@ -73,6 +81,13 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
         });
 
         log.info("out reactive-multiple");
+    }
+
+
+    class DataWriteException extends RuntimeException {
+        public DataWriteException(Throwable cause) {
+            super(cause);
+        }
     }
 
 }

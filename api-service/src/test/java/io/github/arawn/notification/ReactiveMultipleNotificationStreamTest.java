@@ -7,13 +7,19 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.junit.Test;
 import org.reactivestreams.Processor;
-import reactor.core.publisher.DirectProcessor;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.WorkQueueProcessor;
+import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
+import reactor.core.Disposable;
+import reactor.core.publisher.*;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 
+import javax.servlet.WriteListener;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 
 import static org.junit.Assert.*;
@@ -26,65 +32,188 @@ public class ReactiveMultipleNotificationStreamTest {
 
     @Test
     public void watch() throws InterruptedException {
-        AwkwardChaosMonkey.STOP.set(true);
+        AwkwardChaosMonkey.STOP.set(false);
 
+        Scheduler.Worker ioWorker = Schedulers.newSingle("io-worker").createWorker();
 
-        DirectProcessor<Notification> processor = DirectProcessor.create();
+        AtomicInteger counter = new AtomicInteger(0);
 
-        Flux<Notification> feedMono = Mono.fromCallable(feedService::getFeedNotify)
-                                          .map(Notification::of)
-                                          .publishOn(Schedulers.newParallel("reactive-worker"))
-                                          .repeat(10);
+        ReactiveMultipleNotificationStream stream = new ReactiveMultipleNotificationStream();
 
-        Flux<Notification> friendMono = Mono.fromCallable(friendService::getFriendRequestNotify)
-                                            .map(Notification::of)
-                                            .publishOn(Schedulers.newParallel("reactive-worker"))
-                                            .repeat(10);
+        FluxProcessor<byte[], OutputStream> writerProcessor = new FluxProcessor<byte[], OutputStream>() {
 
+            Subscription subscription;
+            Subscriber<? super OutputStream> subscriber;
 
+            @Override
+            public void onSubscribe(Subscription subscription) {
+                if (Operators.validate(this.subscription, subscription)) {
+                    this.subscription = subscription;
+                }
+            }
 
-//        feedMono.log().subscribe(processor);
-//        friendMono.log().subscribe(processor);
+            @Override
+            public void onNext(byte[] bytes) {
+                log.info("write onNext: " + counter.get());
 
-        Flux<Notification> notificationFlux = processor.log()
-                .doOnSubscribe(subscription -> {
-                    log.info("1 subscription = " + subscription);
+                if (counter.incrementAndGet() > 4) {
+                    counter.set(0);
+                    log.info("write!!!");
+                    subscriber.onNext(null);
+                } else {
+                    ioWorker.schedule(() -> onNext(bytes));
+                }
+            }
 
-                    feedMono.subscribeOn(Schedulers.single()).subscribe(processor);
-                    friendMono.subscribeOn(Schedulers.single()).subscribe(processor);
+            @Override
+            public void onError(Throwable throwable) {
+                subscriber.onError(throwable);
+            }
 
-                    log.info("2 subscription = " + subscription);
+            @Override
+            public void onComplete() {
+                subscriber.onComplete();
+            }
+
+            @Override
+            public void subscribe(Subscriber<? super OutputStream> subscriber) {
+                this.subscriber = subscriber;
+
+                subscriber.onSubscribe(new Subscription() {
+                    @Override
+                    public void request(long n) {
+                        Schedulers.parallel().schedule(() -> subscription.request(1));
+                    }
+                    @Override
+                    public void cancel() {
+                        subscription.cancel();
+                    }
                 });
+            }
 
-        notificationFlux.doOnComplete(() -> log.info("complate")).subscribe(notification -> {
-            log.info("notification 1 = " + notification.getEvent());
-        }, 256);
+        };
 
-        notificationFlux.subscribeOn(Schedulers.single()).doOnComplete(() -> log.info("complate")).subscribe(notification -> {
-            log.info("notification 2 = " + notification.getEvent());
-        }, 256);
+        FluxProcessor<OutputStream, Void> flushProcessor = new FluxProcessor<OutputStream, Void>() {
+
+            Subscription subscription;
+
+            @Override
+            public void onSubscribe(Subscription subscription) {
+                if (Operators.validate(this.subscription, subscription)) {
+                    this.subscription = subscription;
+                    this.subscription.request(1);
+                }
+            }
+
+            @Override
+            public void onNext(OutputStream outputStream) {
+                log.info("flush onNext: " + counter.get());
+
+                if (counter.incrementAndGet()> 4) {
+                    counter.set(0);
+                    log.info("flush");
+                    Schedulers.parallel().schedule(() -> subscription.request(1));
+                } else {
+                    ioWorker.schedule(() -> onNext(outputStream));
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                System.out.println("오류다아아아아아~~~~");
+            }
+
+            @Override
+            public void onComplete() {
+
+            }
+
+        };
+
+        stream.watch().log().map(notification -> notification.getEvent().getBytes()).subscribe(writerProcessor);
+        writerProcessor.log().subscribe(flushProcessor);
 
 
-//        processor
-//            .log()
-//            .subscribeOn(Schedulers.parallel())
-//            .doOnRequest(request -> {
-//                System.out.println("request = " + request);
+
+
+//        Disposable subscribe = stream.watch().log()
+//                .subscribe(notification -> {
+//            log.info("1::::::" + notification.getEvent());
+//        }, 1);
+
+
+
+
+//        Disposable subscribe1 = stream.watch().log().subscribe(notification -> {
+//            log.info("2::::::" + notification.getEvent());
+//        }, 1);
 //
-//            })
-//            .doOnSubscribe(subscription -> {
-//                System.out.println("subscription = " + subscription);
-//            })
-//            .subscribe(notification -> {
-//                System.out.println(notification.event + " : " + notification.getData());
-//            }, 3);
+//        Disposable subscribe2 = stream.watch().log().subscribe(notification -> {
+//            log.info("3::::::" + notification.getEvent());
+//        }, 1);
 
 
-//        ReactiveMultipleNotificationStream stream = new ReactiveMultipleNotificationStream();
-//        stream.watch()
-//              .subscribe(notification -> System.out.println(notification.getEvent()), 256);
+//        Disposable subscribe = watch.subscribeOn(Schedulers.single()).log().subscribe(notification -> {
+//            log.info(notification.getEvent());
+//        }, 1);
 
-        Thread.sleep(Long.MAX_VALUE);
+
+//        Flux<byte[]> notifications = stream.watch().map(notification -> notification.getData().getBytes()).log();
+//
+//
+//
+////        DirectProcessor<Notification> waitProcessor = DirectProcessor.create();
+////        DirectProcessor<Notification> writeProcessor = DirectProcessor.create();
+//
+////        waitProcessor.doOnSubscribe(subscription -> {
+////            watch.subscribe(waitProcessor);
+////        }).doOnNext(notification -> {
+////            if (counter.incrementAndGet() > 5) {
+////                System.out.println("ready!");
+////            } else {
+////                waitProcessor.onNext(notification);
+////            }
+////        }).subscribe(1);
+//
+//        Processor<byte[], Notification> waitProcessor = new FluxProcessor<byte[], Notification>() {
+//
+//            Subscription subscription;
+//
+//            @Override
+//            public void onSubscribe(Subscription subscription) {
+//                this.subscription = subscription;
+//                subscription.request(1);
+//            }
+//
+//            @Override
+//            public void onNext(byte[] notification) {
+//                System.out.println("notification = [" + notification + "]");
+//
+//                subscription.request(1);
+//            }
+//
+//            @Override
+//            public void onError(Throwable t) {
+//                System.out.println("t = [" + t + "]");
+//            }
+//
+//            @Override
+//            public void onComplete() {
+//                System.out.println("ReactiveMultipleNotificationStreamTest.onComplete");
+//            }
+//
+//            @Override
+//            public void subscribe(Subscriber<? super Notification> subscriber) {
+//
+//            }
+//
+//        };
+//
+//        notifications.subscribe(waitProcessor);
+//
+//        waitProcessor.onComplete();
+
+        Thread.sleep(Integer.MAX_VALUE);
     }
 
 }

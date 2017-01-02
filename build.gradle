@@ -1,9 +1,13 @@
 buildscript {
     ext {
-        springBootVersion = '1.4.1.RELEASE'
+        // springBootVersion = '1.4.3.RELEASE'
+        springBootVersion = '2.0.0.BUILD-SNAPSHOT'
     }
     repositories {
         mavenCentral()
+        maven { url "https://repo.spring.io/libs-release" }
+        maven { url "https://repo.spring.io/milestone" }
+        maven { url "https://repo.spring.io/snapshot" }
     }
     dependencies {
         classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
@@ -32,16 +36,25 @@ configure(allprojects) {
     }
 
     repositories {
-        maven { url "https://repo.spring.io/libs-release" }
         mavenCentral()
+        maven { url "https://repo.spring.io/libs-release" }
+        maven { url "https://repo.spring.io/milestone" }
+        maven { url "https://repo.spring.io/snapshot" }
     }
 
     dependencies {
         compile 'org.springframework.boot:spring-boot-starter-web'
         compile 'org.springframework.boot:spring-boot-starter-undertow'
-        compile 'io.projectreactor:reactor-core:3.0.3.RELEASE'
+        compile 'io.projectreactor:reactor-core:3.0.4.RELEASE'
 
         testCompile 'org.springframework.boot:spring-boot-starter-test'
+        testCompile 'org.springframework.boot.experimental:spring-boot-starter-web-reactive'
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot.experimental:spring-boot-dependencies-web-reactive:0.1.0.BUILD-SNAPSHOT"
+        }
     }
 
     sourceCompatibility = versions.jdk

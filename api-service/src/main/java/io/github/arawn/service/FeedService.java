@@ -13,7 +13,7 @@ public class FeedService {
             throw new ServiceOperationException();
         }
 
-        NetworkLatency.delay(20);
+        NetworkLatency.delay(10);
 
         FeedNotify feedNotify = new FeedNotify();
         feedNotify.setContent(words[(int) (Math.random() * 99 + 0)]);

@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AwkwardChaosMonkey {
 
     public static final AtomicBoolean STOP = new AtomicBoolean(false);
-    final AtomicInteger counter = new AtomicInteger(10);
+    final AtomicInteger counter = new AtomicInteger(5);
 
     boolean doItNow() {
         if (STOP.get()) {
@@ -24,7 +24,7 @@ public class AwkwardChaosMonkey {
     }
 
     void reset() {
-        counter.set((int) (Math.random() * 20 + 5));
+        counter.set((int) (Math.random() * 15 + 5));
     }
 
 }
