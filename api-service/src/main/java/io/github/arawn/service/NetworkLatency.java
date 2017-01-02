@@ -6,11 +6,11 @@ public class NetworkLatency {
     }
 
     public static void veryfast() {
-        delay(10, 5);
+        delay(30, 20);
     }
 
     public static void fast() {
-        delay(200, 100);
+        delay(200, 150);
     }
 
     public static void medium() {

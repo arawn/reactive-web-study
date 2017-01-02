@@ -10,7 +10,7 @@ public class FriendService {
             throw new ServiceOperationException();
         }
 
-        NetworkLatency.delay(100);
+        NetworkLatency.fast();
 
         FriendRequestNotify friendRequestNotify = new FriendRequestNotify();
         friendRequestNotify.setUsername(usernames[(int) (Math.random() * 99 + 0)]);

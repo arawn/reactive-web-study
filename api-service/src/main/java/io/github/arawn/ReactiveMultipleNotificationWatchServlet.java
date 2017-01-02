@@ -50,6 +50,7 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
                                                   })
                                                   .doOnError(throwable -> asyncContext.complete())
                                                   .doOnComplete(asyncContext::complete)
+                                                  .doOnCancel(asyncContext::complete)
                                                   .subscribe(1);
 
         asyncContext.addListener(new AsyncListener() {
@@ -65,12 +66,16 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
 
             @Override
             public void onTimeout(AsyncEvent event) throws IOException {
-                log.info("timeout reactive-multiple");
+                if (!disposable.isDisposed()) {
+                    disposable.dispose();
+                }
             }
 
             @Override
             public void onError(AsyncEvent event) throws IOException {
-                log.info("error reactive-multiple");
+                if (!disposable.isDisposed()) {
+                    disposable.dispose();
+                }
             }
 
             @Override

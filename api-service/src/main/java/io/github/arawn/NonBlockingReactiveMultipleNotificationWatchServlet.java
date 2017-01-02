@@ -255,7 +255,7 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
 //    }
 
 
-    final static Scheduler.Worker ioWorker = Schedulers.newSingle("io-worker").createWorker();
+    final static Scheduler ioScheduler = Schedulers.newParallel("io-worker", 2, true);
     final static class ServletOutputStreamWriteProcessor extends FluxProcessor<byte[], ServletOutputStream> {
 
         final Publisher<byte[]> publisher;
@@ -285,12 +285,12 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
             if (outputStream.isReady()) {
                 try {
                     outputStream.write(bytes);
-                    ioWorker.schedule(() -> subscriber.onNext(outputStream));
+                    ioScheduler.schedule(() -> subscriber.onNext(outputStream));
                 } catch (IOException error) {
                     subscriber.onError(error);
                 }
             } else {
-                ioWorker.schedule(() -> onNext(bytes));
+                ioScheduler.schedule(() -> onNext(bytes));
             }
         }
 
@@ -346,7 +346,7 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
                     onError(error);
                 }
             } else {
-                ioWorker.schedule(() -> onNext(outputStream));
+                ioScheduler.schedule(() -> onNext(outputStream));
             }
         }
 
