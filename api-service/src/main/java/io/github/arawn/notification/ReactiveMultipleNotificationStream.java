@@ -18,7 +18,8 @@ import java.util.stream.Stream;
 
 public class ReactiveMultipleNotificationStream {
 
-    final static Scheduler schedule = Schedulers.newParallel("reactive-worker", 100, true);
+    final static Scheduler stream = Schedulers.newSingle("reactive-stream", true);
+    final static Scheduler worker = Schedulers.newParallel("reactive-worker", 5, true);
 
     final Log log = LogFactory.getLog(ReactiveMultipleNotificationStream.class);
     final FeedService feedService = new FeedService();
@@ -43,18 +44,16 @@ public class ReactiveMultipleNotificationStream {
                 super.subscribe(subscriber);
 
                 if (subscribed.compareAndSet(false, true)) {
-                    feedNotifies.subscribe(this);
-                    friendRequestNotifies.subscribe(this);
+                    feedNotifies.subscribeOn(worker).publishOn(stream).subscribe(this);
+                    friendRequestNotifies.subscribeOn(worker).publishOn(stream).subscribe(this);
                 }
 
-                synchronized (this) {
-                    subscribers.add(subscriber);
-                }
+                subscribers.add(subscriber);
 
                 subscriber.onSubscribe(new Subscription() {
                     @Override
                     public void request(long n) {
-                        subscriptions.forEach(subscription -> schedule.schedule(() -> subscription.request(n)));
+                        subscriptions.forEach(subscription -> subscription.request(n));
                     }
                     @Override
                     public void cancel() {

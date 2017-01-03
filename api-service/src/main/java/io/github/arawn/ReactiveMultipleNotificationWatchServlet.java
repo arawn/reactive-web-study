@@ -1,11 +1,14 @@
 package io.github.arawn;
 
+import io.github.arawn.notification.Notification;
 import io.github.arawn.notification.ReactiveMultipleNotificationStream;
 import io.github.arawn.service.AwkwardChaosMonkey;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import javax.servlet.*;
 import javax.servlet.annotation.WebServlet;
@@ -29,11 +32,13 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
         response.setContentType("text/event-stream");
 
         ServletOutputStream outputStream = response.getOutputStream();
+        outputStream.flush();
 
         AsyncContext asyncContext = request.startAsync();
 
         ReactiveMultipleNotificationStream notificationStream = new ReactiveMultipleNotificationStream();
         Disposable disposable = notificationStream.watch()
+                                                  .take(50)
                                                   .map(notification -> {
                                                       String content = "event: " + notification.getEvent() + "\n" +
                                                                        "data: " + notification.getData() + "\n\n";
@@ -44,11 +49,15 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
                                                       try {
                                                           outputStream.write(content);
                                                           outputStream.flush();
-                                                      } catch (IOException error) {
+                                                      } catch (Exception error) {
                                                           throw new DataWriteException(error);
                                                       }
                                                   })
-                                                  .doOnError(throwable -> asyncContext.complete())
+                                                  .doOnError(throwable -> {
+                                                      throwable.printStackTrace();
+
+                                                      asyncContext.complete();
+                                                  })
                                                   .doOnComplete(asyncContext::complete)
                                                   .doOnCancel(asyncContext::complete)
                                                   .subscribe(1);
@@ -66,6 +75,8 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
 
             @Override
             public void onTimeout(AsyncEvent event) throws IOException {
+                log.info("timeout reactive-multiple");
+
                 if (!disposable.isDisposed()) {
                     disposable.dispose();
                 }
@@ -73,6 +84,8 @@ public class ReactiveMultipleNotificationWatchServlet extends HttpServlet {
 
             @Override
             public void onError(AsyncEvent event) throws IOException {
+                log.info("error reactive-multiple");
+
                 if (!disposable.isDisposed()) {
                     disposable.dispose();
                 }

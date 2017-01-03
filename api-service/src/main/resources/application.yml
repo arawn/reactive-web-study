@@ -1,2 +1,2 @@
 server.tomcat.max-threads: 1
-server.undertow.worker-threads: 1
+server.undertow.worker-threads: 5

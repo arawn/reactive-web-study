@@ -9,8 +9,8 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.publisher.FluxProcessor;
 import reactor.core.publisher.Operators;
-import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.core.scheduler.TimedScheduler;
 
 import javax.servlet.*;
 import javax.servlet.annotation.WebServlet;
@@ -18,6 +18,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 @WebServlet(urlPatterns = "/notification/watch/non-blocking-reactive-multiple", asyncSupported = true)
 public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpServlet {
@@ -79,12 +80,123 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
                              "data: " + notification.getData() + "\n\n";
 
             return content.getBytes();
-        }), asyncContext).subscribe(flushProcessor);
+        }), asyncContext).take(50).subscribe(flushProcessor);
+
+        this.log.info("out non-blocking-reactive-multiple");
+    }
+
+
+    final static TimedScheduler ioScheduler = Schedulers.newTimer("io-worker", true);
+    final static class ServletOutputStreamWriteProcessor extends FluxProcessor<byte[], ServletOutputStream> {
+
+        final Publisher<byte[]> publisher;
+        final AsyncContext asyncContext;
+        final ServletOutputStream outputStream;
+
+        Subscription subscription;
+        Subscriber<? super ServletOutputStream> subscriber;
+
+        public ServletOutputStreamWriteProcessor(Publisher<byte[]> publisher, AsyncContext asyncContext) throws IOException {
+            this.publisher = publisher;
+            this.asyncContext = asyncContext;
+            this.outputStream = asyncContext.getResponse().getOutputStream();
+
+            this.publisher.subscribe(this);
+        }
+
+        @Override
+        public void onSubscribe(Subscription subscription) {
+            if (Operators.validate(this.subscription, subscription)) {
+                this.subscription = subscription;
+            }
+        }
+
+        @Override
+        public void onNext(byte[] bytes) {
+            if (outputStream.isReady()) {
+                try {
+                    outputStream.write(bytes);
+                    ioScheduler.schedule(() -> subscriber.onNext(outputStream), 10, TimeUnit.MILLISECONDS);
+                } catch (IOException error) {
+                    subscriber.onError(error);
+                }
+            } else {
+                ioScheduler.schedule(() -> onNext(bytes), 10, TimeUnit.MILLISECONDS);
+            }
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            subscriber.onError(throwable);
+        }
+
+        @Override
+        public void onComplete() {
+            subscriber.onComplete();
+            asyncContext.complete();
+        }
+
+        @Override
+        public void subscribe(Subscriber<? super ServletOutputStream> subscriber) {
+            this.subscriber = subscriber;
+
+            subscriber.onSubscribe(new Subscription() {
+                @Override
+                public void request(long n) {
+                    subscription.request(1);
+                }
+                @Override
+                public void cancel() {
+                    subscription.cancel();
+                    asyncContext.complete();
+                }
+            });
+        }
+
+    }
+
+    final static class ServletOutputStreamFlushProcessor extends FluxProcessor<ServletOutputStream, Void> {
+
+        Subscription subscription;
+
+        @Override
+        public void onSubscribe(Subscription subscription) {
+            if (Operators.validate(this.subscription, subscription)) {
+                this.subscription = subscription;
+                this.subscription.request(1);
+            }
+        }
+
+        @Override
+        public void onNext(ServletOutputStream outputStream) {
+            if (outputStream.isReady()) {
+                try {
+                    outputStream.flush();
+                    subscription.request(1);
+                } catch (IOException error) {
+                    onError(error);
+                }
+            } else {
+                ioScheduler.schedule(() -> onNext(outputStream), 10, TimeUnit.MILLISECONDS);
+            }
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            subscription.cancel();
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+
+    }
 
 
 
 
-//        Disposable disposable = notificationStream.watch()
+    //        Disposable disposable = notificationStream.watch()
 //                                                .map(notification -> {
 //                                                    String content = "event: " + notification.getEvent() + "\n" +
 //                                                            "data: " + notification.getData() + "\n\n";
@@ -134,9 +246,6 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
 //                                                      throwable.printStackTrace();
 //                                                      asyncContext.complete();
 //                                                  }).log();
-
-
-
 //        DirectProcessor<byte[]> writeProcess = DirectProcessor.create();
 //        writeProcess.doOnSubscribe(subscription -> {
 //            System.out.println("write subscribe");
@@ -204,11 +313,6 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
 //            }
 //
 //        });
-
-        this.log.info("out non-blocking-reactive-multiple");
-    }
-
-
 //    Flux<ServletOutputStream> create(final ServletOutputStream out) {
 //        return Flux.from(subscriber -> {
 //            final AtomicBoolean dispose = new AtomicBoolean(false);
@@ -253,115 +357,5 @@ public class NonBlockingReactiveMultipleNotificationWatchServlet extends HttpSer
 //            });
 //        });
 //    }
-
-
-    final static Scheduler ioScheduler = Schedulers.newParallel("io-worker", 2, true);
-    final static class ServletOutputStreamWriteProcessor extends FluxProcessor<byte[], ServletOutputStream> {
-
-        final Publisher<byte[]> publisher;
-        final AsyncContext asyncContext;
-        final ServletOutputStream outputStream;
-
-        Subscription subscription;
-        Subscriber<? super ServletOutputStream> subscriber;
-
-        public ServletOutputStreamWriteProcessor(Publisher<byte[]> publisher, AsyncContext asyncContext) throws IOException {
-            this.publisher = publisher;
-            this.asyncContext = asyncContext;
-            this.outputStream = asyncContext.getResponse().getOutputStream();
-
-            this.publisher.subscribe(this);
-        }
-
-        @Override
-        public void onSubscribe(Subscription subscription) {
-            if (Operators.validate(this.subscription, subscription)) {
-                this.subscription = subscription;
-            }
-        }
-
-        @Override
-        public void onNext(byte[] bytes) {
-            if (outputStream.isReady()) {
-                try {
-                    outputStream.write(bytes);
-                    ioScheduler.schedule(() -> subscriber.onNext(outputStream));
-                } catch (IOException error) {
-                    subscriber.onError(error);
-                }
-            } else {
-                ioScheduler.schedule(() -> onNext(bytes));
-            }
-        }
-
-        @Override
-        public void onError(Throwable throwable) {
-            subscriber.onError(throwable);
-        }
-
-        @Override
-        public void onComplete() {
-            subscriber.onComplete();
-            asyncContext.complete();
-        }
-
-        @Override
-        public void subscribe(Subscriber<? super ServletOutputStream> subscriber) {
-            this.subscriber = subscriber;
-
-            subscriber.onSubscribe(new Subscription() {
-                @Override
-                public void request(long n) {
-                    Schedulers.parallel().schedule(() -> subscription.request(1));
-                }
-                @Override
-                public void cancel() {
-                    subscription.cancel();
-                    asyncContext.complete();
-                }
-            });
-        }
-
-    }
-
-    final static class ServletOutputStreamFlushProcessor extends FluxProcessor<ServletOutputStream, Void> {
-
-        Subscription subscription;
-
-        @Override
-        public void onSubscribe(Subscription subscription) {
-            if (Operators.validate(this.subscription, subscription)) {
-                this.subscription = subscription;
-                this.subscription.request(1);
-            }
-        }
-
-        @Override
-        public void onNext(ServletOutputStream outputStream) {
-            if (outputStream.isReady()) {
-                try {
-                    outputStream.flush();
-                    Schedulers.parallel().schedule(() -> subscription.request(1));
-                } catch (IOException error) {
-                    onError(error);
-                }
-            } else {
-                ioScheduler.schedule(() -> onNext(outputStream));
-            }
-        }
-
-        @Override
-        public void onError(Throwable throwable) {
-            // throwable.printStackTrace();
-
-            subscription.cancel();
-        }
-
-        @Override
-        public void onComplete() {
-
-        }
-
-    }
 
 }
