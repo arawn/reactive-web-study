@@ -1,0 +1,11 @@
+
+# 서블릿 컨테이너 설정
+server:
+  undertow.worker-threads: 1
+
+# 로그 설정
+logging:
+  level:
+    io.github.arawn: INFO
+    org.springframework: WARN
+    org.apache.http: INFO
