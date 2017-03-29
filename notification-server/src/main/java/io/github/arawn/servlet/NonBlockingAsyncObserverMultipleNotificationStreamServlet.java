@@ -205,9 +205,6 @@ public class NonBlockingAsyncObserverMultipleNotificationStreamServlet extends H
 
         private void handlerError(Throwable error) {
             log.error("error notification/stream/non-blocking-async-concurrency : " + error.getMessage());
-            if (!"Broken pipe".equals(error.getMessage())) {
-                error.printStackTrace();
-            }
 
             streamObservable.unsubscribe();
             asyncContext.complete();
